@@ -25,6 +25,7 @@
 #include <json/json.h>
 
 #include "IPeerServerHandler.h"
+#include "../../include/IRpcMethodCaller.h"
 
 namespace rpcserver {
 
@@ -61,6 +62,14 @@ public:
   virtual void sendNotification(const H& clientCtx,
                                 const std::string& name,
                                 const Json::Value& params) = 0;
+
+  /***************************************************************
+   *
+   * *************************************************************/
+  virtual void callMethod(const H& clientCtx,
+                          const std::string& name,
+                          const Json::Value& params,
+                          const RpcCbs& cbs) = 0;
 
   /***************************************************************
    *

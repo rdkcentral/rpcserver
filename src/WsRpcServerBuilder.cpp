@@ -88,5 +88,5 @@ WsRpcServerBuilder& WsRpcServerBuilder::sock_reuse_addr(bool _sock_reuse_addr)
 IAbstractRpcServer* WsRpcServerBuilder::build() const
 {
   return new WsRpcServer(
-    m_host, m_port, m_ipv4only, m_registerMethodName, m_unregisterMethodName, m_getListenersMethodName, m_numThreads, m_sock_reuse_addr);
+    m_host, m_port, m_ipv4only, m_registerMethodName, m_unregisterMethodName, m_getListenersMethodName, std::vector<std::pair<std::string, std::string>>(), m_numThreads, m_sock_reuse_addr);
 }

@@ -40,6 +40,7 @@ WsRpcServer::WsRpcServer(const std::string& host,
                          const std::string& registerMethodName,
                          const std::string& unregisterMethodName,
                          const std::string& getListenersMethodName,
+                         std::vector<std::pair<std::string, std::string>> providers,
                          std::size_t numThreads,
                          const bool sock_reuse_addr)
   : m_wsConnector(std::unique_ptr<WsConnector>(new WsConnector(host, port, ipv4only, numThreads, sock_reuse_addr)))
@@ -47,7 +48,8 @@ WsRpcServer::WsRpcServer(const std::string& host,
       new RpcPeerServer<WsClientCtx, WsClientCtxComparator>(*m_wsConnector,
                                                         registerMethodName,
                                                         unregisterMethodName,
-                                                        getListenersMethodName)))
+                                                        getListenersMethodName,
+                                                        providers)))
 {}
 
 /***************************************************************
@@ -95,4 +97,12 @@ bool WsRpcServer::bindNotification(const std::string& name,
 void WsRpcServer::onEvent(const std::string& name, const Json::Value& eventInfo)
 {
   m_rpcServer->onEvent(name, eventInfo);
+}
+
+/***************************************************************
+ *
+ * *************************************************************/
+void WsRpcServer::callMethod(const std::string& clientId, const std::string& name, const Json::Value& params, const RpcCbs& cbs)
+{
+  m_rpcServer->callMethod(clientId, name, params, cbs);
 }

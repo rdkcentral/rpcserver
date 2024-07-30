@@ -21,6 +21,7 @@
 
 #include "IRpcExternalEventListener.h"
 #include "IRpcMethodBinder.h"
+#include "IRpcMethodCaller.h"
 #include "IRpcServerControl.h"
 
 namespace rpcserver {
@@ -32,6 +33,7 @@ class IAbstractRpcServer
   : public IRpcServerControl
   , public IRpcMethodBinder
   , public IRpcExternalEventListener
+  , public IRpcMethodCaller
 {
 public:
   /***************************************************************

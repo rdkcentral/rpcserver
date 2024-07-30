@@ -22,7 +22,8 @@
 #include <functional>
 #include <memory>
 #include <string>
-
+#include <utility>
+#include <vector>
 #include <json/json.h>
 
 #include "IAbstractRpcServer.h"
@@ -47,6 +48,7 @@ public:
               const std::string& registerMethodName,
               const std::string& unregisterMethodName,
               const std::string& getListenersMethodName,
+              std::vector<std::pair<std::string, std::string>> providers,
               std::size_t numThreads = 1,
               const bool sock_reuse_addr = true);
 
@@ -81,6 +83,14 @@ public:
    *
    * *************************************************************/
   virtual void onEvent(const std::string& name, const Json::Value& eventInfo) override;
+
+  /***************************************************************
+   *
+   * *************************************************************/
+  virtual void callMethod(const std::string& clientId,
+                          const std::string& name,
+                          const Json::Value& params,
+                          const RpcCbs& cbs) override;
 
 protected:
   std::unique_ptr<WsConnector> m_wsConnector;

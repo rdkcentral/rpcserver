@@ -29,9 +29,11 @@ set(SOURCE_FILES
     include/IAbstractRpcServer.h
     include/IRpcExternalEventListener.h
     include/IRpcMethodBinder.h
+    include/IRpcMethodCaller.h
     include/IRpcServerBuilder.h
     include/IRpcServerControl.h
     include/WsRpcServerBuilder.h
+    include/WsRpcServerBuilderExtended.h
     src/connector/AbstractPeerServerConnector.h
     src/connector/PeerProtocolHandler.h
     src/connector/WsClientCtx.h
@@ -45,6 +47,7 @@ set(SOURCE_FILES
     src/WsRpcServer.h
     src/WsRpcServer.cpp
     src/WsRpcServerBuilder.cpp
+    src/WsRpcServerBuilderExtended.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES})

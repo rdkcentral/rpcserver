@@ -24,6 +24,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <iostream>
+#include <mutex>
 
 #include <boost/asio.hpp>
 #include <json/json.h>
@@ -43,6 +45,33 @@ namespace rpcserver {
  * *************************************************************/
 class WsConnector : public AbstractPeerServerConnector<WsClientCtx>
 {
+  using Clock = std::chrono::steady_clock;
+  struct MethodCallCbEntry
+  {
+    std::string name;
+    Json::Value params;
+    RpcCbs cbs;
+    Clock::time_point timestamp{Clock::now()};
+
+    MethodCallCbEntry() {}
+
+    MethodCallCbEntry(const std::string& name_,
+                      const Json::Value& params_,
+                      const RpcCbs& callbacks_):
+      name{name_},
+      params{params_},
+      cbs{callbacks_}
+    {}
+
+    bool expired() const
+    {
+      using namespace std::chrono;
+
+      const auto now = Clock::now();
+      const auto diff = duration_cast<std::chrono::seconds>(now - timestamp);
+      return cbs.timeout < diff;
+    }
+  };
 public:
   /***************************************************************
    *
@@ -62,7 +91,14 @@ public:
   /***************************************************************
    *
    * *************************************************************/
-  virtual ~WsConnector() { StopListening(); }
+  virtual ~WsConnector()
+  {
+    m_expiredMonitorActive = false;
+    if (m_expiredMonitor.joinable()) {
+      m_expiredMonitor.join();
+    }
+    WsConnector::StopListening();
+  }
 
   /***************************************************************
    *
@@ -82,6 +118,7 @@ public:
       m_server.get_io_service().dispatch(std::bind(&WsConnector::stopServerLoop, this));
       m_thread.join();
     }
+
     return true;
   }
 
@@ -94,6 +131,25 @@ public:
   {
     m_server.get_io_service().dispatch(
       std::bind(&WsConnector::doSendNotification, this, clientCtx, name, params));
+  }
+
+  /***************************************************************
+ *
+ * *************************************************************/
+  virtual void callMethod(const WsClientCtx& clientCtx,
+                                const std::string& name,
+                                const Json::Value& params,
+                                const RpcCbs& cbs) override
+  {
+    {
+      // only kick start expired calls thread when callMethod is ever used
+      std::lock_guard<std::mutex> lk(m_mtx);
+      if (!m_expiredMonitor.joinable()) {
+        m_expiredMonitor = std::thread(&WsConnector::monitorExpired, this);
+      }
+    }
+    m_server.get_io_service().dispatch(
+      std::bind(&WsConnector::doCallMethod, this, clientCtx, name, params, cbs));
   }
 
 protected:
@@ -175,9 +231,9 @@ protected:
     /***************************************************************
      *
      * *************************************************************/
-    WsClientCtx newConnection(const websocketpp::connection_hdl& connHdl)
+    WsClientCtx newConnection(const websocketpp::connection_hdl& connHdl, const std::string& clientId)
     {
-      WsClientCtx ctx(++m_connIdCnt);
+      WsClientCtx ctx(++m_connIdCnt, clientId);
       m_connToCtx[connHdl] = ctx;
       m_ctxToConn[ctx] = connHdl;
       return ctx;
@@ -244,6 +300,39 @@ protected:
   }
 
   /***************************************************************
+ *
+ * *************************************************************/
+  void doCallMethod(const WsClientCtx& clientCtx,
+                    const std::string& name,
+                    const Json::Value& params,
+                    const RpcCbs& cbs)
+  {
+    uint64_t id = 0;
+    {
+      std::lock_guard<std::mutex> lk(m_mtx);
+      id = m_nextid++;
+      m_cbMap[id] = MethodCallCbEntry(name, params, cbs);
+    }
+    Json::FastWriter writer;
+    Json::Value req;
+    req["jsonrpc"] = "2.0";
+    req["id"] = Json::UInt64(id);
+    req["method"] = name;
+    req["params"] = params;
+    const auto msg = writer.write(req);
+    bool success = sendMessage(clientCtx, msg);
+    if (!success) {
+      {
+        std::lock_guard<std::mutex> lk(m_mtx);
+        m_cbMap.erase(id);
+      }
+      if (cbs.errorCb) {
+        cbs.errorCb(name, params, Error{Error::CouldNotSendRequest, "Could not send request"});
+      }
+    }
+  }
+
+  /***************************************************************
    *
    * *************************************************************/
   void doHandleConnect(const WsClientCtx& ctx)
@@ -270,13 +359,51 @@ protected:
   /***************************************************************
    *
    * *************************************************************/
-  void doHandleRequest(const WsClientCtx& ctx, const std::string& request)
+  void doHandleRequestOrResponse(const WsClientCtx& ctx, const std::string& msg)
   {
     try {
-      std::string response;
-      m_serverHandlers.at(std::this_thread::get_id())->HandlePeerRequest(ctx, request, response);
-      m_server.get_io_service().dispatch(
-        std::bind(&WsConnector::doSendResponse, this, ctx, response));
+      Json::Value jsonobj;
+      Json::Reader reader;
+
+      bool parsingSuccessful = reader.parse(msg, jsonobj);
+
+      // is it a response to a method call?
+      if (parsingSuccessful && !jsonobj.isMember("method")
+          && jsonobj.isMember("id") && jsonobj["id"].isUInt64()
+          && (jsonobj.isMember("result") || jsonobj.isMember("error"))) {
+        uint64_t id = jsonobj["id"].asUInt64();
+
+        std::unique_lock<std::mutex> lk(m_mtx);
+        if (m_cbMap.find(id) != m_cbMap.end()) {
+          const auto entry = m_cbMap[id];
+          m_cbMap.erase(id);
+          lk.unlock();
+
+          if (jsonobj.isMember("result") && entry.cbs.doneCb) {
+            entry.cbs.doneCb(entry.name, entry.params, jsonobj["result"]);
+          } else if (jsonobj.isMember("error") && entry.cbs.errorCb) {
+            const auto& error = jsonobj["error"];
+            int code = Error::Unknown;
+            std::string errormsg = "Unknown error message";
+            if (error.isMember("code")) {
+              code = error["code"].asInt();
+            }
+            if (error.isMember("message")) {
+              errormsg = error["message"].asString();
+            }
+            entry.cbs.errorCb(entry.name, entry.params, Error(code, errormsg));
+          }
+        } else {
+          std::cout << "Ignoring answer for "<< id << " : " << msg << std::endl;
+        }
+      } else { // assume incoming method call or event
+        std::string response;
+        m_serverHandlers.at(std::this_thread::get_id())->HandlePeerRequest(ctx, msg, response);
+        if (!response.empty()) { // events do not have a response
+          m_server.get_io_service().dispatch(
+              std::bind(&WsConnector::doSendResponse, this, ctx, response));
+        }
+      }
     } catch (const std::out_of_range& e) {
       throw std::logic_error("Server handler was not prepared for worker thread");
     }
@@ -285,12 +412,13 @@ protected:
   /***************************************************************
    *
    * *************************************************************/
-  void sendMessage(const WsClientCtx& ctx, const std::string& message)
+  bool sendMessage(const WsClientCtx& ctx, const std::string& message)
   {
     try {
       const websocketpp::connection_hdl& connHdl = m_clientCtxManager.getConnHdl(ctx);
       try {
         m_server.send(connHdl, message, websocketpp::frame::opcode::text);
+        return true;
       } catch (const websocketpp::lib::error_code& e) {
       } catch (const std::exception& e) {
       } catch (...) {
@@ -300,6 +428,7 @@ protected:
       // This means client is already disconnected (and some messages may still be queued),
       // it is normal behavior
     }
+    return false;
   }
 
   /***************************************************************
@@ -307,7 +436,9 @@ protected:
    * *************************************************************/
   void onConnOpen(websocketpp::connection_hdl connHdl)
   {
-    WsClientCtx ctx = m_clientCtxManager.newConnection(connHdl);
+    auto con = m_server.get_con_from_hdl(connHdl);
+    const auto& client_id = con->get_request_header("X-Client-ID");
+    WsClientCtx ctx = m_clientCtxManager.newConnection(connHdl, client_id);
     m_clientHandlers[ctx] = std::unique_ptr<PeerClient>(new PeerClient(this, ctx));
 
     m_workerIoService.dispatch(std::bind(&WsConnector::doHandleConnect, this, ctx));
@@ -337,7 +468,7 @@ protected:
 
     try {
       m_workerIoService.dispatch(std::bind(
-        &WsConnector::doHandleRequest, this, m_clientCtxManager.getClientCtx(connHdl), request));
+        &WsConnector::doHandleRequestOrResponse, this, m_clientCtxManager.getClientCtx(connHdl), request));
     } catch (std::out_of_range& e) {
       throw std::runtime_error("Message was received before the connection was opened");
     }
@@ -453,6 +584,34 @@ protected:
     }
   }
 
+  /***************************************************************
+   *
+   * *************************************************************/
+  void monitorExpired()
+  {
+    while(m_expiredMonitorActive) {
+      std::this_thread::sleep_for(std::chrono::milliseconds{500});
+      MethodCallCbEntry expired;
+      {
+        std::lock_guard<std::mutex> lk(m_mtx);
+        auto begin = std::begin(m_cbMap);
+        const auto end = std::end(m_cbMap);
+
+        while (begin != end) {
+          if (begin->second.expired()) {
+            std::swap(expired, begin->second);
+            begin = m_cbMap.erase(begin);
+            break;
+          } else std::advance(begin, 1);
+        }
+      }
+      if (expired.cbs.errorCb) {
+        expired.cbs.errorCb(expired.name, expired.params,
+                            Error{Error::TimeoutWaitingOnResponse, "Timed-out waiting on response"});
+      }
+    }
+  }
+
   Webserver m_server;
   std::thread m_thread;
   std::string m_host;
@@ -464,6 +623,11 @@ protected:
   std::map<std::thread::id, std::unique_ptr<PeerProtocolHandler<WsClientCtx>>> m_serverHandlers;
   std::map<WsClientCtx, std::unique_ptr<PeerClient>, WsClientCtxComparator> m_clientHandlers;
   ClientCtxManager m_clientCtxManager;
+  std::map<uint64_t, MethodCallCbEntry> m_cbMap;
+  std::mutex m_mtx;
+  uint64_t m_nextid = 1;
+  std::atomic<bool> m_expiredMonitorActive{true};
+  std::thread m_expiredMonitor;
 };
 
 } // namespace rpcserver

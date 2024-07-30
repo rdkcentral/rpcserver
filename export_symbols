@@ -21,6 +21,7 @@ LIBRPCSERVER_1.0.0 {
         *IAbstractRpcServer*;
         *IRpcServerControl*;
         *IRpcMethodBinder*;
+        *IRpcMethodCaller*;
         *IRpcExternalEventListener*;
         *IRpcServerBuilder*;
         *WsRpcServerBuilder*;

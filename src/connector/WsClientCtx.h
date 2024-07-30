@@ -19,22 +19,71 @@
 #ifndef WS_CLIENT_CTX_H_
 #define WS_CLIENT_CTX_H_
 
+#include <iostream>
+#include <string>
+
 namespace rpcserver {
 
 /***************************************************************
  *
  * *************************************************************/
-struct WsClientCtx
-{
+struct WsClientCtx {
   uint64_t m_id;
-  WsClientCtx() = default;
+  bool m_valid;
+  std::string m_clientId;
+  WsClientCtx()
+  {
+    m_id = 0;
+    m_valid = false;
+  }
 
   /***************************************************************
    *
    * *************************************************************/
-  explicit WsClientCtx(uint64_t id)
-    : m_id(id)
+  explicit WsClientCtx(uint64_t id, const std::string& clientId)
+    : m_id(id), m_valid(true), m_clientId(clientId)
   {}
+
+  /***************************************************************
+   *
+   * *************************************************************/
+   bool valid() const
+   {
+    return m_valid;
+   }
+
+  /***************************************************************
+  *
+  * *************************************************************/
+  std::string getClientId() const
+  {
+    return m_clientId;
+  }
+
+  /***************************************************************
+   *
+   * *************************************************************/
+  void clear()
+  {
+    m_valid = false;
+    m_id = 0;
+  }
+
+  /***************************************************************
+  *
+  * *************************************************************/
+  friend std::ostream& operator<<(std::ostream& os, const WsClientCtx& obj)
+  {
+    os << obj.m_id;
+    return os;
+  }
+
+  /***************************************************************
+  *
+  * *************************************************************/
+  bool operator==(const WsClientCtx& other) const {
+    return this->m_id == other.m_id;
+  }
 };
 
 /***************************************************************
