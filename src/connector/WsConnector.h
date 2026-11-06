@@ -37,6 +37,7 @@
 #include "AbstractPeerServerConnector.h"
 #include "PeerProtocolHandler.h"
 #include "WsClientCtx.h"
+#include "../Log.h"
 
 namespace rpcserver {
 
@@ -538,9 +539,18 @@ protected:
   void serverLoop()
   {
     try {
+#if defined(RPCSERVER_ENABLE_VERBOSE_LOGGING) && RPCSERVER_ENABLE_VERBOSE_LOGGING
       // Set logging to be pretty verbose (everything except message payloads)
       m_server.set_access_channels(websocketpp::log::alevel::all);
       m_server.clear_access_channels(websocketpp::log::alevel::frame_payload);
+#else
+      m_server.clear_access_channels(websocketpp::log::alevel::all);
+      // Turn off websocketpp logging except for warnings and errors
+      m_server.clear_error_channels(websocketpp::log::elevel::all);
+      m_server.set_error_channels(websocketpp::log::elevel::warn |
+                                  websocketpp::log::elevel::rerror |
+                                  websocketpp::log::elevel::fatal);
+#endif
 
       // Initialize ASIO
       m_server.init_asio();
