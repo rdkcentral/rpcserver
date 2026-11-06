@@ -545,6 +545,8 @@ protected:
       m_server.clear_access_channels(websocketpp::log::alevel::frame_payload);
 #else
       m_server.clear_access_channels(websocketpp::log::alevel::all);
+      m_server.set_access_channels(websocketpp::log::alevel::connect |
+                                   websocketpp::log::alevel::disconnect);
       // Turn off websocketpp logging except for warnings and errors
       m_server.clear_error_channels(websocketpp::log::elevel::all);
       m_server.set_error_channels(websocketpp::log::elevel::warn |
