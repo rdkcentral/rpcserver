@@ -36,6 +36,7 @@
 #include "../interface/IPeerServerConnector.h"
 #include "../interface/IPeerServerHandler.h"
 #include "../interface/IRpcEventManagerListener.h"
+#include "../Log.h"
 #include "RpcEventManager.h"
 
 namespace rpcserver {
@@ -201,7 +202,7 @@ public:
     if (!id.empty()) {
       auto& entry = m_providersMap[id]; // create if needed
       entry.first = clientCtx;
-      std::cout << "Registered client " << id << " on " << clientCtx << " via header (connected)" << std::endl;
+      rpcserver::log::warn("Registered client " + id + " on " + std::to_string(reinterpret_cast<uintptr_t>(&clientCtx)) + " via header (connected)");
     }
   }
 
@@ -216,7 +217,7 @@ public:
     for(auto& entry: m_providersMap)
     {
       if (entry.second.first == clientCtx) {
-        std::cout << "Unregistering client " << entry.first << " on " << clientCtx << " (disconnected)" << std::endl;
+        rpcserver::log::warn("Unregistering client " + entry.first + " on " + std::to_string(reinterpret_cast<uintptr_t>(&clientCtx)) + " (disconnected)");
         entry.second.first.clear();
       }
     }
