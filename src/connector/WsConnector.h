@@ -540,7 +540,7 @@ protected:
   {
     try {
 #if defined(RPCSERVER_ENABLE_VERBOSE_LOGGING) && RPCSERVER_ENABLE_VERBOSE_LOGGING
-      // Set logging to be pretty verbose (everything except message payloads)
+      // Set logging to be verbose (everything except message payloads)
       m_server.set_access_channels(websocketpp::log::alevel::all);
       m_server.clear_access_channels(websocketpp::log::alevel::frame_payload);
 #else
