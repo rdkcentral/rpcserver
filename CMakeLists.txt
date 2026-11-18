@@ -21,6 +21,12 @@ cmake_minimum_required(VERSION 3.0)
 
 project(rpcserver VERSION 1.0.0 LANGUAGES CXX)
 
+option(RPCSERVER_ENABLE_VERBOSE_LOGGING "Enable verbose RPC server and websocket logs" OFF)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(RPCSERVER_ENABLE_VERBOSE_LOGGING ON CACHE BOOL "Enable verbose RPC server and websocket logs" FORCE)
+endif()
+
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -34,6 +40,7 @@ set(SOURCE_FILES
     include/IRpcServerControl.h
     include/WsRpcServerBuilder.h
     include/WsRpcServerBuilderExtended.h
+    src/Log.h
     src/connector/AbstractPeerServerConnector.h
     src/connector/PeerProtocolHandler.h
     src/connector/WsClientCtx.h
@@ -51,6 +58,12 @@ set(SOURCE_FILES
 )
 
 add_library(${PROJECT_NAME} SHARED ${SOURCE_FILES})
+
+if(RPCSERVER_ENABLE_VERBOSE_LOGGING)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE RPCSERVER_ENABLE_VERBOSE_LOGGING=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE RPCSERVER_ENABLE_VERBOSE_LOGGING=0)
+endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
     VERSION ${PROJECT_VERSION}
